@@ -8,12 +8,15 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Param struct {
+	StageIdx    int
 	InputURL    string
 	MatchURL    string
 	MatchWord   string
+	DoMatch     bool
 	CountTreads int
 	Steps       int
 	Idx         int
@@ -30,8 +33,19 @@ func NewParser(par Param) *Parser {
 	}
 }
 
+func (v *Parser) ChangeUrl(url string) error {
+	v.par.StageIdx++
+	if val, found := v.par.Stage[strconv.Itoa(v.par.StageIdx)]; found {
+		part := strings.SplitAfter(v.par.InputURL, "/")
+		v.par.InputURL = strings.Join(part[:len(part)-1], "") + val.(string)
+		fmt.Println(v.par.InputURL)
+	}
+	return nil
+}
+
 func (v *Parser) ParserUrl(url string) error {
 	var client http.Client
+	client.Timeout = 10 * time.Second
 
 	response, err := client.Get(url)
 	if err != nil {
@@ -49,10 +63,15 @@ func (v *Parser) ParserUrl(url string) error {
 	scanner := bufio.NewScanner(strings.NewReader(res))
 	for scanner.Scan() {
 		line := scanner.Text()
+		if !v.par.DoMatch {
+			fmt.Println("DoMatch is false. Stopping execution.")
+			return nil
+		}
 		if strings.Index(line, "/wiki/") >= 6 {
 			v.collectorMap(line)
 		}
 	}
+
 	return nil
 }
 
@@ -62,7 +81,7 @@ func (v *Parser) collectorMap(s string) *Param {
 	for _, element := range match {
 		word := element[1]
 		if v.par.MatchWord == word {
-			break
+			v.par.DoMatch = false
 		} else {
 			v.par.Idx++
 			id := strconv.Itoa(v.par.Idx)
@@ -76,17 +95,22 @@ func main() {
 
 	p := NewParser(Param{
 		InputURL:    "https://en.wikipedia.org/wiki/World",
+		StageIdx:    0,
+		DoMatch:     true,
 		CountTreads: 4,
-		MatchURL:    "https://en.wikipedia.org/wiki/Russia",
+		MatchURL:    "https://en.wikipedia.org/wiki/Nuclear_reactor",
 		Stage:       make(map[string]interface{}),
 	})
-
-	p.par.MatchWord = strings.Join(strings.SplitAfterN(p.par.MatchURL, "/", 4), "")
-	p.ParserUrl(p.par.InputURL)
-
-	for i := 0; i <= p.par.Idx; i++ {
-		if val, found := p.par.Stage[strconv.Itoa(i)]; found {
-			fmt.Printf("%d  %s\n", i, val)
-		}
+	part := strings.Split(p.par.MatchURL, "/")
+	p.par.MatchWord = part[len(part)-1]
+	for p.par.DoMatch {
+		p.ParserUrl(p.par.InputURL)
+		// for i := 0; i <= p.par.Idx; i++ {
+		// 	if val, found := p.par.Stage[strconv.Itoa(i)]; found {
+		// 		fmt.Printf("%d  %s\n", i, val)
+		// 	}
+		// }
+		fmt.Printf("%t\n", p.par.DoMatch)
+		p.ChangeUrl(p.par.InputURL)
 	}
 }
