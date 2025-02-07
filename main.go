@@ -104,6 +104,7 @@ func main() {
 	part := strings.Split(p.par.MatchURL, "/")
 	p.par.MatchWord = part[len(part)-1]
 	for p.par.DoMatch {
+		
 		p.ParserUrl(p.par.InputURL)
 		// for i := 0; i <= p.par.Idx; i++ {
 		// 	if val, found := p.par.Stage[strconv.Itoa(i)]; found {
