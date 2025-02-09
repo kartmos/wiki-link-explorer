@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 type Param struct {
@@ -24,8 +23,6 @@ type Param struct {
 	Memory      map[string]interface{}
 	input       chan string
 	output      chan string
-	sleep       time.Duration
-	signal      *sync.WaitGroup
 }
 
 type Parser struct {
@@ -38,60 +35,49 @@ func NewParser(param Param) *Parser {
 	}
 }
 
-func (v *Parser) pusher() chan string {
-	defer close(v.param.input)
-	defer close(v.param.output)
-	v.param.PusherIdx = 0
-	for v.param.DoMatch {
-		if x, found := v.param.Memory[strconv.Itoa(v.param.PusherIdx)]; found {
-			fmt.Printf("URL in pusher:\n%s\n\n", x.(string))
-			v.param.input <- x.(string)
-			v.param.PusherIdx++
-		}
+func pusher[T any, O any](input chan T, wg *sync.WaitGroup, execute func(msg T) O) {
+	defer wg.Done()
+	for msg := range input {
+		execute(msg)
 	}
-	return nil
+
 }
 
-func (v *Parser) ChangerUrlGet(url string) error {
-	v.param.MemoryIdx++
-	if val, found := v.param.Memory[strconv.Itoa(v.param.MemoryIdx)]; found {
-		part := strings.SplitAfter(v.param.InputURL, "/")
-		v.param.InputURL = strings.Join(part[:len(part)-1], "") + val.(string)
-		fmt.Println(v.param.InputURL)
+func (v *Parser) mapRunner(m map[string]interface{}) {
+	PusherIdx := 0
+	if x, found := m[strconv.Itoa(PusherIdx)]; found {
+		fmt.Printf("URL in pusher:\n%s\n\n", x.(string))
+		v.param.output <- x.(string)
+		PusherIdx++
 	}
-	return nil
 }
 
-func (v *Parser) ParserUrl(input chan string) chan string {
-	v.param.output = make(chan string)
-	go func() {
-		defer close(v.param.output)
+func (v *Parser) ParserUrl(input chan string) {
+	fmt.Println("Create Goroutine")
 
-		var client http.Client
-		response, err := client.Get(<-input)
-		fmt.Println("Get response")
-		if err != nil {
-			panic(err)
-		}
-		defer response.Body.Close()
+	var client http.Client
+	response, err := client.Get(<-input)
+	fmt.Println("Get response")
+	if err != nil {
+		panic(err)
+	}
+	defer response.Body.Close()
 
-		body, err := io.ReadAll(response.Body)
-		if err != nil {
-			panic(err)
-		}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		panic(err)
+	}
 
-		res := string(body)
+	res := string(body)
 
-		scanner := bufio.NewScanner(strings.NewReader(res))
-		fmt.Println("Create scanner")
-		for scanner.Scan() {
-			line := scanner.Text()
-			v.finder(line)
-		}
-	}()
-
-	return nil
+	scanner := bufio.NewScanner(strings.NewReader(res))
+	for scanner.Scan() {
+		line := scanner.Text()
+		v.finder(line)
+	}
+	fmt.Println("DONE")
 }
+
 func (v *Parser) finder(s string) *Param {
 	if !v.param.DoMatch {
 		fmt.Println("DoMatch is false. Stopping execution.")
@@ -102,6 +88,9 @@ func (v *Parser) finder(s string) *Param {
 		match := re.FindAllStringSubmatch(s, -1)
 		for _, element := range match {
 			if v.Matcher(element[1]) {
+				if element[1] == "Special:Random" {
+					break
+				}
 				v.mapAccumulator(element[1])
 			} else {
 				v.param.output <- "https://en.wikipedia.org/wiki/" + element[1]
@@ -115,6 +104,7 @@ func (v *Parser) finder(s string) *Param {
 func (v *Parser) Matcher(s string) bool {
 	if s == v.param.MatchWord {
 		v.param.DoMatch = false
+		fmt.Printf("\n\n\n\n НАЙДЕН --------> %t\n\n\n\n", v.param.DoMatch)
 	}
 	return v.param.DoMatch
 }
@@ -123,7 +113,7 @@ func (v *Parser) mapAccumulator(s string) *Param {
 	v.param.Idx++
 	id := strconv.Itoa(v.param.Idx)
 	v.param.Memory[id] = "https://en.wikipedia.org/wiki/" + s
-	fmt.Printf("Matched\n\n %s", v.param.Memory[id].(string))
+	// fmt.Printf("Collect --------> %s\n", v.param.Memory[id].(string))
 	return nil
 }
 
@@ -134,19 +124,26 @@ func main() {
 		MemoryIdx:   0,
 		DoMatch:     true,
 		CountTreads: 4,
-		MatchURL:    "https://en.wikipedia.org/wiki/Nuclear_reactor",
+		MatchURL:    "https://en.wikipedia.org/wiki/Académie_Française",
 		Memory:      make(map[string]interface{}),
 		input:       make(chan string),
-		sleep:       1 * time.Second,
+		output:      make(chan string),
 	})
 	part := strings.Split(p.param.MatchURL, "/")
 	p.param.MatchWord = part[len(part)-1]
 	p.param.Memory[strconv.Itoa(p.param.MemoryIdx)] = p.param.InputURL
 	fmt.Printf("Start URL:\n%s\n\n", p.param.InputURL)
+
+	for i := 0; i < p.param.CountTreads; i++ {
+		go p.ParserUrl(p.param.input)
+	}
+
 	p.param.input = p.pusher()
 	fmt.Println("Start pusher")
+	close(p.param.output)
 
-	for result := range p.ParserUrl(p.param.input) {
-		fmt.Printf("Matched\n\n%s", result)
+	for result := range p.param.output {
+		fmt.Printf("\n\n\nMatched ->>\n\n%s", result)
 	}
+	fmt.Scan()
 }
