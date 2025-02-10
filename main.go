@@ -6,21 +6,17 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
-	"sync"
 )
 
 type Param struct {
-	PusherIdx   int
-	MemoryIdx   int
+	NumberMap   int
 	InputURL    string
 	MatchURL    string
 	MatchWord   string
 	DoMatch     bool
 	CountTreads int
-	Idx         int
-	Memory      map[string]interface{}
+	Storage     chan interface{}
 	input       chan string
 	output      chan string
 }
@@ -35,37 +31,53 @@ func NewParser(param Param) *Parser {
 	}
 }
 
-func pusher[T any, O any](input chan T, wg *sync.WaitGroup, execute func(msg T) O) {
-	defer wg.Done()
+func (v *Parser) pusher(input chan interface{}) {
+	fmt.Println("Start pusher")
 	for msg := range input {
-		execute(msg)
+		v.accretionMap(msg)
 	}
 
 }
 
-func (v *Parser) mapRunner(m map[string]interface{}) {
+func (v *Parser) accretionMap(data interface{}) {
+	if m, ok := data.(map[int]string); ok {
+		v.mapRunner(m)
+	}
+}
+
+func (v *Parser) mapRunner(data map[int]string) {
 	PusherIdx := 0
-	if x, found := m[strconv.Itoa(PusherIdx)]; found {
-		fmt.Printf("URL in pusher:\n%s\n\n", x.(string))
-		v.param.output <- x.(string)
+	if x, found := data[PusherIdx]; found {
+		fmt.Printf("URL in pusher:\n%s\n\n", x)
+		v.param.input <- x
 		PusherIdx++
 	}
+
+}
+func (v *Parser) run(input chan string) {
+	fmt.Println("Start worker")
+	for msg := range input {
+		v.parserUrl(msg)
+	}
 }
 
-func (v *Parser) ParserUrl(input chan string) {
+func (v *Parser) parserUrl(s string) {
 	fmt.Println("Create Goroutine")
+	v.param.NumberMap++
+	linksBuffer := make(map[int]string)
+	mapIndex := 0
 
 	var client http.Client
-	response, err := client.Get(<-input)
-	fmt.Println("Get response")
+
+	response, err := client.Get(s)
 	if err != nil {
-		panic(err)
+		fmt.Printf("Request error -> %s\n", err)
 	}
 	defer response.Body.Close()
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		panic(err)
+		fmt.Printf("Response processing error -> %s\n", err)
 	}
 
 	res := string(body)
@@ -73,73 +85,69 @@ func (v *Parser) ParserUrl(input chan string) {
 	scanner := bufio.NewScanner(strings.NewReader(res))
 	for scanner.Scan() {
 		line := scanner.Text()
-		v.finder(line)
+		v.finder(line, linksBuffer, &mapIndex)
 	}
-	fmt.Println("DONE")
+	v.param.Storage <- linksBuffer
+	fmt.Printf("\n\n-> %d Map in Chan\n\n", v.param.NumberMap)
 }
 
-func (v *Parser) finder(s string) *Param {
+func (v *Parser) finder(s string, buffer map[int]string, idx *int) error {
 	if !v.param.DoMatch {
-		fmt.Println("DoMatch is false. Stopping execution.")
 		return nil
 	}
 	if strings.Index(s, "/wiki/") >= 6 {
 		re := regexp.MustCompile(`href="/wiki/([^"]+)"`)
 		match := re.FindAllStringSubmatch(s, -1)
 		for _, element := range match {
-			if v.Matcher(element[1]) {
-				if element[1] == "Special:Random" {
-					break
-				}
-				v.mapAccumulator(element[1])
+			if !v.match(element[1]) {
+				buffer[*idx] = "https://en.wikipedia.org/wiki/" + string(element[1])
+				*idx++
 			} else {
-				v.param.output <- "https://en.wikipedia.org/wiki/" + element[1]
-				break
+				close(v.param.Storage) // тут надо все остановить
 			}
 		}
 	}
 	return nil
 }
 
-func (v *Parser) Matcher(s string) bool {
+func (v *Parser) match(s string) bool {
 	if s == v.param.MatchWord {
-		v.param.DoMatch = false
-		fmt.Printf("\n\n\n\n НАЙДЕН --------> %t\n\n\n\n", v.param.DoMatch)
+		v.param.DoMatch = true
+		fmt.Printf("\n\n\n\n FOUND --------> %t\n\n\n\n", v.param.DoMatch)
 	}
 	return v.param.DoMatch
 }
 
-func (v *Parser) mapAccumulator(s string) *Param {
-	v.param.Idx++
-	id := strconv.Itoa(v.param.Idx)
-	v.param.Memory[id] = "https://en.wikipedia.org/wiki/" + s
-	// fmt.Printf("Collect --------> %s\n", v.param.Memory[id].(string))
-	return nil
+func (v *Parser) setupInitialData() {
+	field := strings.Split(v.param.MatchURL, "/")
+	v.param.MatchWord = field[len(field)-1]
+	InitMap := make(map[int]string)
+	InitMap[0] = v.param.InputURL
+	v.param.Storage <- InitMap
+	fmt.Printf("Init URL ---> %s\n\n", v.param.InputURL)
 }
 
 func main() {
 
 	p := NewParser(Param{
+		NumberMap:   0,
 		InputURL:    "https://en.wikipedia.org/wiki/World",
-		MemoryIdx:   0,
-		DoMatch:     true,
-		CountTreads: 4,
 		MatchURL:    "https://en.wikipedia.org/wiki/Académie_Française",
-		Memory:      make(map[string]interface{}),
+		CountTreads: 4,
+		Storage:     make(chan interface{}),
 		input:       make(chan string),
 		output:      make(chan string),
+		DoMatch:     false,
 	})
-	part := strings.Split(p.param.MatchURL, "/")
-	p.param.MatchWord = part[len(part)-1]
-	p.param.Memory[strconv.Itoa(p.param.MemoryIdx)] = p.param.InputURL
-	fmt.Printf("Start URL:\n%s\n\n", p.param.InputURL)
+
+	p.setupInitialData()
 
 	for i := 0; i < p.param.CountTreads; i++ {
-		go p.ParserUrl(p.param.input)
+		go p.run(p.param.input)
 	}
 
-	p.param.input = p.pusher()
-	fmt.Println("Start pusher")
+	go p.pusher(p.param.Storage)
+
 	close(p.param.output)
 
 	for result := range p.param.output {
