@@ -39,34 +39,32 @@ func (v *Parser) work(data map[int]string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	buffer := make(map[int]string)
-	done := make(chan struct{})
 	bridge := make(chan string)
 	stringParseChan := make(chan string)
 	wg := &sync.WaitGroup{}
 
-	time.Sleep(2 * time.Second)
+	wg.Add(v.param.CountTreads)
 	for i := 0; i < v.param.CountTreads; i++ {
 		fmt.Printf("Start worker ------------>  %d\n\n", i)
-		wg.Add(1)
 		go v.run(ctx, wg, stringParseChan, bridge)
 	}
-	go v.accumulator(buffer, wg, done, bridge)
 	go func() {
+		wg.Wait()
+		close(bridge)
+	}()
+
+	go v.accumulator(buffer, bridge)
+
+	go func() {
+		defer close(stringParseChan)
 		fmt.Println("Sending string in workerpool...")
 		defer fmt.Println("Sended all string in workerpool ---> stop pusher")
 		for _, val := range data {
 			stringParseChan <- val
 		}
-		var stop struct{}
-		done <- stop
-		close(stringParseChan)
 	}()
 
-	wg.Wait()
-	time.Sleep(1 * time.Second)
 	fmt.Println("Accumulator stop work")
-	close(done)
-	close(bridge)
 
 	select {
 	case result := <-v.param.output:
@@ -74,42 +72,44 @@ func (v *Parser) work(data map[int]string) {
 		return
 	default:
 	}
-	newData := v.accretion(v.param.Storage)
-	time.Sleep(5 * time.Second)
+	r := <-v.param.Storage
+	newData := v.accretion(r)
 	fmt.Println("Finish work\n\n\n\n")
 
 	v.work(newData)
 }
 
-func (v *Parser) accretion(input chan interface{}) map[int]string {
+func (v *Parser) accretion(input interface{}) map[int]string {
 	fmt.Println("Start accretion")
-	data := <-input
-	val := data.(map[int]string)
+	val := input.(map[int]string)
 	return val
 }
 
-func (v *Parser) accumulator(m map[int]string, wg *sync.WaitGroup, done chan struct{}, input chan string) {
+func (v *Parser) accumulator(m map[int]string, bridge chan string) {
+	defer fmt.Println("Accumulator defer stop work")
 	fmt.Println("Accumulator start work")
 	idx := 0
-	for {
-		select {
-		case <-done:
-			v.param.Storage <- m
-			fmt.Println("SENDED map in Storage")
-			break
-		case str := <-input:
-			m[idx] = str
+
+	for url := range bridge {
+		if !v.param.BoolMatch && url != "" {
+			fmt.Printf("str append in map -> (%s)\n", url)
+			m[idx] = url
 			idx++
+		} else {
+			fmt.Println("Break map in Storage")
+			break
 		}
 	}
+	v.param.Storage <- m
+	fmt.Println("SENDED map in Storage")
 }
 
 func (v *Parser) run(ctx context.Context, wg *sync.WaitGroup, input chan string, bridge chan string) {
-	defer fmt.Println("Stop worker")
 	defer wg.Done()
 	for str := range input {
 		select {
 		case <-ctx.Done():
+			fmt.Println("Stop worker")
 			return
 		default:
 			v.parserUrl(ctx, str, bridge)
@@ -118,7 +118,6 @@ func (v *Parser) run(ctx context.Context, wg *sync.WaitGroup, input chan string,
 }
 
 func (v *Parser) parserUrl(ctx context.Context, s string, bridge chan string) {
-	// fmt.Println(s)
 	v.param.NumberMap++
 
 	var client http.Client
@@ -142,7 +141,7 @@ func (v *Parser) parserUrl(ctx context.Context, s string, bridge chan string) {
 		line := scanner.Text()
 		v.finder(ctx, line, bridge)
 	}
-	// fmt.Println("End parse inputURL")
+	fmt.Println("End parse inputURL")
 }
 
 func (v *Parser) finder(ctx context.Context, s string, buffer chan string) {
@@ -179,7 +178,7 @@ func main() {
 		InputURL:    "https://en.wikipedia.org/wiki/World",
 		MatchURL:    "https://en.wikipedia.org/wiki/War",
 		CountTreads: 4,
-		Storage:     make(chan interface{}, 1),
+		Storage:     make(chan interface{}),
 		output:      make(chan string),
 		BoolMatch:   false,
 	})
