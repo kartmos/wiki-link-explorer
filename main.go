@@ -58,17 +58,16 @@ func (v *Parser) work(data map[int]string) {
 	go func() {
 		defer close(stringParseChan)
 		fmt.Println("Sending string in workerpool...")
-		defer fmt.Println("Sended all string in workerpool ---> stop pusher")
+		defer fmt.Println("Sent all string in workerpool ---> Stop pushing")
 		for _, val := range data {
 			stringParseChan <- val
 		}
 	}()
 
-	fmt.Println("Accumulator stop work")
-
 	select {
 	case result := <-v.param.output:
-		fmt.Printf("\n\n\nMatched ->>\n\n%s\n", result)
+		v.param.NumberMap++
+		fmt.Printf("\n\n\nMatched on level %d:\n\n\n---> %s\n\n\n\n\n", v.param.NumberMap, result)
 		return
 	default:
 	}
@@ -86,13 +85,11 @@ func (v *Parser) accretion(input interface{}) map[int]string {
 }
 
 func (v *Parser) accumulator(m map[int]string, bridge chan string) {
-	defer fmt.Println("Accumulator defer stop work")
 	fmt.Println("Accumulator start work")
 	idx := 0
 
 	for url := range bridge {
 		if !v.param.BoolMatch && url != "" {
-			fmt.Printf("str append in map -> (%s)\n", url)
 			m[idx] = url
 			idx++
 		} else {
@@ -101,7 +98,8 @@ func (v *Parser) accumulator(m map[int]string, bridge chan string) {
 		}
 	}
 	v.param.Storage <- m
-	fmt.Println("SENDED map in Storage")
+	v.param.NumberMap++
+	fmt.Printf("Sent map №%d in Storage\n", v.param.NumberMap)
 }
 
 func (v *Parser) run(ctx context.Context, wg *sync.WaitGroup, input chan string, bridge chan string) {
@@ -118,8 +116,7 @@ func (v *Parser) run(ctx context.Context, wg *sync.WaitGroup, input chan string,
 }
 
 func (v *Parser) parserUrl(ctx context.Context, s string, bridge chan string) {
-	v.param.NumberMap++
-
+	fmt.Println(s)
 	var client http.Client
 
 	response, err := client.Get(s)
@@ -155,7 +152,6 @@ func (v *Parser) finder(ctx context.Context, s string, buffer chan string) {
 				close(v.param.Storage)
 				close(v.param.output)
 			} else {
-				// fmt.Println("https://en.wikipedia.org/wiki/" + element[1])
 				buffer <- "https://en.wikipedia.org/wiki/" + element[1]
 			}
 		}
@@ -176,7 +172,7 @@ func main() {
 	p := NewParser(Param{
 		NumberMap:   0,
 		InputURL:    "https://en.wikipedia.org/wiki/World",
-		MatchURL:    "https://en.wikipedia.org/wiki/War",
+		MatchURL:    "https://en.wikipedia.org/wiki/Civilian_casualty",
 		CountTreads: 4,
 		Storage:     make(chan interface{}),
 		output:      make(chan string),
@@ -184,12 +180,11 @@ func main() {
 	})
 	start := p.setupInitialData()
 	p.work(start)
-	p.param.Storage <- start
 
 	select {
-	case result := <-p.param.output:
-		fmt.Printf("\n\n\nMatched ->>\n\n%s\n", result)
-	case <-time.After(10 * time.Minute):
-		fmt.Println("Timeout reached, stopping...")
+	case <-time.After(2 * time.Minute):
+		p.param.NumberMap++
+		fmt.Printf("Timeout reached, stopping...\n Process stopped on level %d", p.param.NumberMap)
+	default:
 	}
 }
