@@ -64,14 +64,19 @@ func (v *Parser) work(ctx context.Context, cancel context.CancelFunc, data map[i
 
 	select {
 	case <-ctx.Done():
-	default:
-	}
-	r := <-v.param.Storage
-	newData := v.accretion(r)
+		return
+	case r := <-v.param.Storage:
+		newData := v.accretion(r)
 
-	if !v.param.BoolMatch {
-		fmt.Println("Not matched")
-		v.work(ctx, cancel, newData)
+		if !v.param.BoolMatch {
+			fmt.Println("Not matched")
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				v.work(ctx, cancel, newData)
+			}
+		}
 	}
 }
 
@@ -83,16 +88,15 @@ func (v *Parser) accretion(input interface{}) map[int]string {
 func (v *Parser) accumulator(ctx context.Context, m map[int]string, bridge chan string) {
 	fmt.Println("Accumulator start working")
 	idx := 0
-	
+
 	for url := range bridge {
 		if !v.param.BoolMatch && url != "" {
 			m[idx] = url
 			idx++
-		} 
+		}
 	}
 	v.param.Storage <- m
 	v.param.NumberMap++
-	// fmt.Printf("Sent map №%d in Storage\n", v.param.NumberMap)
 }
 
 func (v *Parser) run(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, input chan string, bridge chan string) {
@@ -109,7 +113,6 @@ func (v *Parser) run(ctx context.Context, cancel context.CancelFunc, wg *sync.Wa
 }
 
 func (v *Parser) parserUrl(cancel context.CancelFunc, s string, bridge chan string) {
-	// fmt.Println(s)
 	var client http.Client
 
 	response, err := client.Get(s)
@@ -131,7 +134,6 @@ func (v *Parser) parserUrl(cancel context.CancelFunc, s string, bridge chan stri
 		line := scanner.Text()
 		v.finder(cancel, line, bridge)
 	}
-	// fmt.Println("End parse inputURL")
 }
 
 func (v *Parser) finder(cancel context.CancelFunc, s string, buffer chan string) {
@@ -163,7 +165,11 @@ func (v *Parser) setupInitialData() map[int]string {
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
-
+	timeout := 1 * time.Minute
+	timer := time.AfterFunc(timeout, func() {
+		fmt.Printf("\nTimeout reached after %v, stopping...\n", timeout)
+		cancel()
+	})
 	p := NewParser(Param{
 		NumberMap: 1,
 		InputURL:  "https://en.wikipedia.org/wiki/World",
@@ -171,16 +177,12 @@ func main() {
 		// MatchURL:    "https://en.wikipedia.org/wiki/Civilian_casualty", // 4 уровень и долгий поиск
 		CountTreads: 4,
 		Storage:     make(chan interface{}),
-		BoolMatch: false,
+		BoolMatch:   false,
 	})
 	defer close(p.param.Storage)
 	start := p.setupInitialData()
 	p.work(ctx, cancel, start)
-	ctx.Deadline()
-	select {
-	case <-ctx.Done():
 
-	case <-time.After(1 * time.Minute):
-		fmt.Printf("Timeout reached, stopping...\n Process stopped on level %d", p.param.NumberMap)
-	}
+	<-ctx.Done()
+	timer.Stop()
 }
