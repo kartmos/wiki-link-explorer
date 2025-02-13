@@ -1,4 +1,4 @@
-package main
+package parser
 
 import (
 	"bufio"
@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"time"
 )
 
 type Param struct {
@@ -20,29 +19,27 @@ type Param struct {
 	BoolMatch   bool
 	CountTreads int
 	Storage     chan interface{}
-	output      chan string
 }
 
 type Parser struct {
-	param Param
+	Param Param
 }
 
 func NewParser(param Param) *Parser {
 	return &Parser{
-		param: param,
+		Param: param,
 	}
 }
-
-func (v *Parser) work(ctx context.Context, cancel context.CancelFunc, data map[int]string) {
+func (v *Parser) Work(ctx context.Context, cancel context.CancelFunc, data map[int]string) {
 
 	buffer := make(map[int]string)
-	bridge := make(chan string, v.param.CountTreads)
-	stringParseChan := make(chan string, v.param.CountTreads)
+	bridge := make(chan string, v.Param.CountTreads)
+	stringParseChan := make(chan string, v.Param.CountTreads)
 	wg := &sync.WaitGroup{}
 
-	fmt.Printf("\n\nLevel %d\n\n", v.param.NumberMap)
-	wg.Add(v.param.CountTreads)
-	for i := 1; i <= v.param.CountTreads; i++ {
+	fmt.Printf("\n\nLevel %d\n\n", v.Param.NumberMap)
+	wg.Add(v.Param.CountTreads)
+	for i := 1; i <= v.Param.CountTreads; i++ {
 		fmt.Printf("Start worker ------------>  %d\n\n", i)
 		go v.run(ctx, cancel, wg, stringParseChan, bridge)
 	}
@@ -51,7 +48,7 @@ func (v *Parser) work(ctx context.Context, cancel context.CancelFunc, data map[i
 		close(bridge)
 	}()
 
-	go v.accumulator(ctx, buffer, bridge)
+	go v.accumulator(buffer, bridge)
 
 	go func() {
 		defer close(stringParseChan)
@@ -65,16 +62,16 @@ func (v *Parser) work(ctx context.Context, cancel context.CancelFunc, data map[i
 	select {
 	case <-ctx.Done():
 		return
-	case r := <-v.param.Storage:
+	case r := <-v.Param.Storage:
 		newData := v.accretion(r)
 
-		if !v.param.BoolMatch {
+		if !v.Param.BoolMatch {
 			fmt.Println("Not matched")
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				v.work(ctx, cancel, newData)
+				v.Work(ctx, cancel, newData)
 			}
 		}
 	}
@@ -85,18 +82,18 @@ func (v *Parser) accretion(input interface{}) map[int]string {
 	return val
 }
 
-func (v *Parser) accumulator(ctx context.Context, m map[int]string, bridge chan string) {
+func (v *Parser) accumulator(m map[int]string, bridge chan string) {
 	fmt.Println("Accumulator start working")
 	idx := 0
 
 	for url := range bridge {
-		if !v.param.BoolMatch && url != "" {
+		if !v.Param.BoolMatch && url != "" {
 			m[idx] = url
 			idx++
 		}
 	}
-	v.param.Storage <- m
-	v.param.NumberMap++
+	v.Param.Storage <- m
+	v.Param.NumberMap++
 }
 
 func (v *Parser) run(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, input chan string, bridge chan string) {
@@ -141,10 +138,10 @@ func (v *Parser) finder(cancel context.CancelFunc, s string, buffer chan string)
 		re := regexp.MustCompile(`href="/wiki/([^"]+)"`)
 		match := re.FindAllStringSubmatch(s, -1)
 		for _, element := range match {
-			if element[1] == v.param.MatchWord && !v.param.BoolMatch {
-				v.param.BoolMatch = true
+			if element[1] == v.Param.MatchWord && !v.Param.BoolMatch {
+				v.Param.BoolMatch = true
 				result := "https://en.wikipedia.org/wiki/" + element[1]
-				fmt.Printf("\n\n\nMatched on level %d:\n\n\n---> %s\n\n\n\n\n", v.param.NumberMap+1, result)
+				fmt.Printf("\n\n\nMatched on level %d:\n\n\n---> %s\n\n\n\n\n", v.Param.NumberMap+1, result)
 				cancel()
 				return
 			} else {
@@ -154,35 +151,11 @@ func (v *Parser) finder(cancel context.CancelFunc, s string, buffer chan string)
 	}
 }
 
-func (v *Parser) setupInitialData() map[int]string {
-	field := strings.Split(v.param.MatchURL, "/")
-	v.param.MatchWord = field[len(field)-1]
+func (v *Parser) SetupInitialData() map[int]string {
+	field := strings.Split(v.Param.MatchURL, "/")
+	v.Param.MatchWord = field[len(field)-1]
 	InitMap := make(map[int]string)
-	InitMap[0] = v.param.InputURL
-	fmt.Printf("Init URL ---> %s\n\n", v.param.InputURL)
+	InitMap[0] = v.Param.InputURL
+	fmt.Printf("Init URL ---> %s\n\n", v.Param.InputURL)
 	return InitMap
-}
-
-func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	timeout := 5 * time.Minute
-	timer := time.AfterFunc(timeout, func() {
-		fmt.Printf("\nTimeout reached after %v, stopping...\n", timeout)
-		cancel()
-	})
-	p := NewParser(Param{
-		NumberMap: 1,
-		InputURL:  "https://en.wikipedia.org/wiki/World",
-		MatchURL:  "https://en.wikipedia.org/wiki/War",
-		// MatchURL:    "https://en.wikipedia.org/wiki/Civilian_casualty", // 4 уровень и долгий поиск
-		CountTreads: 4,
-		Storage:     make(chan interface{}),
-		BoolMatch:   false,
-	})
-	defer close(p.param.Storage)
-	start := p.setupInitialData()
-	p.work(ctx, cancel, start)
-
-	<-ctx.Done()
-	timer.Stop()
 }
