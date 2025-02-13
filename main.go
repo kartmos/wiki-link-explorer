@@ -165,7 +165,7 @@ func (v *Parser) setupInitialData() map[int]string {
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
-	timeout := 1 * time.Minute
+	timeout := 5 * time.Minute
 	timer := time.AfterFunc(timeout, func() {
 		fmt.Printf("\nTimeout reached after %v, stopping...\n", timeout)
 		cancel()
