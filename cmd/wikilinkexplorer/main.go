@@ -1,13 +1,14 @@
 package main
 
 import (
-	"WikiLinkExplorer/internal/config"
-	"WikiLinkExplorer/internal/parser"
 	"context"
 	"flag"
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/kartmos/wiki-link-explorer/internal/config"
+	"github.com/kartmos/wiki-link-explorer/internal/parser"
 )
 
 func main() {
