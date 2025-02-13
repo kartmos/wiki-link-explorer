@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"time"
 )
 
@@ -13,7 +14,7 @@ func main() {
 	flag.Parse()
 
 	if config.Threads <= 0 {
-		panic("Number of threads must be greater than 0")
+		log.Println("Number of threads must be greater than 0")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

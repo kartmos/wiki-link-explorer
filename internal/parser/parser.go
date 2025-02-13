@@ -1,10 +1,10 @@
 package parser
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -39,8 +39,7 @@ func (v *Parser) Work(ctx context.Context, cancel context.CancelFunc, data map[i
 
 	fmt.Printf("\n\nLevel %d\n\n", v.Param.NumberMap)
 	wg.Add(v.Param.CountTreads)
-	for i := 1; i <= v.Param.CountTreads; i++ {
-		fmt.Printf("Start worker ------------>  %d\n\n", i)
+	for i := 0; i < v.Param.CountTreads; i++ {
 		go v.run(ctx, cancel, wg, stringParseChan, bridge)
 	}
 	go func() {
@@ -52,8 +51,6 @@ func (v *Parser) Work(ctx context.Context, cancel context.CancelFunc, data map[i
 
 	go func() {
 		defer close(stringParseChan)
-		fmt.Println("Sending string in workerpool...")
-		defer fmt.Println("Sent all string in workerpool ---> Stop pushing")
 		for _, val := range data {
 			stringParseChan <- val
 		}
@@ -66,7 +63,6 @@ func (v *Parser) Work(ctx context.Context, cancel context.CancelFunc, data map[i
 		newData := v.accretion(r)
 
 		if !v.Param.BoolMatch {
-			fmt.Println("Not matched")
 			select {
 			case <-ctx.Done():
 				return
@@ -83,7 +79,6 @@ func (v *Parser) accretion(input interface{}) map[int]string {
 }
 
 func (v *Parser) accumulator(m map[int]string, bridge chan string) {
-	fmt.Println("Accumulator start working")
 	idx := 0
 
 	for url := range bridge {
@@ -101,7 +96,6 @@ func (v *Parser) run(ctx context.Context, cancel context.CancelFunc, wg *sync.Wa
 	for str := range input {
 		select {
 		case <-ctx.Done():
-			fmt.Println("Stop worker")
 			return
 		default:
 			v.parserUrl(cancel, str, bridge)
@@ -114,23 +108,18 @@ func (v *Parser) parserUrl(cancel context.CancelFunc, s string, bridge chan stri
 
 	response, err := client.Get(s)
 	if err != nil {
-		fmt.Printf("Request error -> %s\n", err)
+		log.Printf("Request error -> %s\n", err)
 	}
 
 	defer response.Body.Close()
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		fmt.Printf("Response processing error -> %s\n", err)
+		log.Printf("Response processing error -> %s\n", err)
 	}
 
 	res := string(body)
-
-	scanner := bufio.NewScanner(strings.NewReader(res))
-	for scanner.Scan() {
-		line := scanner.Text()
-		v.finder(cancel, line, bridge)
-	}
+	v.finder(cancel, res, bridge)
 }
 
 func (v *Parser) finder(cancel context.CancelFunc, s string, buffer chan string) {
@@ -141,7 +130,7 @@ func (v *Parser) finder(cancel context.CancelFunc, s string, buffer chan string)
 			if element[1] == v.Param.MatchWord && !v.Param.BoolMatch {
 				v.Param.BoolMatch = true
 				result := "https://en.wikipedia.org/wiki/" + element[1]
-				fmt.Printf("\n\n\nMatched on level %d:\n\n\n---> %s\n\n\n\n\n", v.Param.NumberMap+1, result)
+				fmt.Printf("\nMatched on level %d:\n---> %s\n", v.Param.NumberMap+1, result)
 				cancel()
 				return
 			} else {
