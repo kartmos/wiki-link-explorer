@@ -1,77 +1,76 @@
-<!-- Улучшенная совместимость ссылки "Наверх" -->
+<!-- Improved compatibility for the "Back to top" link -->
 <a id="readme-top"></a>
 
-  <h1 align="center">WikiLinkExplorer</h1>
+<h1 align="center">WikiLinkExplorer</h1>
 
-  <p align="center">
-    Многопоточный поисковик путей в Википедии на Go!
-    <br />
-    <br />
-    <a href="https://github.com/kartmos/WikiLinkExplorer/issues/new?labels=bug&template=bug-report.md">Сообщить об ошибке</a>
-    &middot;
-    <a href="https://github.com/kartmos/WikiLinkExplorer/issues/new?labels=enhancement&template=feature-request.md">Предложить улучшение</a>
-  </p>
-</div>
+<p align="center">
+  A multi-threaded Wikipedia pathfinder in Go!
+  <br />
+  <br />
+  <a href="https://github.com/kartmos/WikiLinkExplorer/issues/new?labels=bug&template=bug-report.md">Report a Bug</a>
+  &middot;
+  <a href="https://github.com/kartmos/WikiLinkExplorer/issues/new?labels=enhancement&template=feature-request.md">Request a Feature</a>
+</p>
 
-<!-- ОГЛАВЛЕНИЕ -->
+<!-- TABLE OF CONTENTS -->
 <details>
-  <summary>Оглавление</summary>
+  <summary>Table of Contents</summary>
   <ol>
-    <li><a href="#о-проекте">О проекте</a></li>
-    <li><a href="#возможности">Возможности</a></li>
-    <li><a href="#начало-работы">Начало работы</a></li>
-    <li><a href="#использование">Использование</a></li>
+    <li><a href="#about-the-project">About the Project</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#getting-started">Getting Started</a></li>
+    <li><a href="#usage">Usage</a></li>
   </ol>
 </details>
 
-<!-- О ПРОЕКТЕ -->
-## О проекте
+<!-- ABOUT THE PROJECT -->
+## About the Project
 
-WikiLinkExplorer — это многопоточный веб-парсер, написанный на Go, который ищет путь от одной страницы Wikipedia до другой, проходя по гиперссылкам. Проект демонстрирует эффективное использование многопоточности, каналов и контекстов в Go для выполнения асинхронных задач. Основные особенности:
+WikiLinkExplorer is a multithreaded web parser written in Go that searches for a path from one Wikipedia page to another by following hyperlinks. The project demonstrates efficient use of multithreading, channels, and contexts in Go for performing asynchronous tasks. Key features include:
 
-* Параллельный краулинг с горутинами
-* Обработка таймаутов через контексты
-* Коммуникация через каналы
-* Парсинг HTML с регулярными выражениями
+* Parallel crawling with goroutines
+* Timeout handling via contexts
+* Communication through channels
+* HTML parsing with regular expressions
 
-<p align="right">(<a href="#readme-top">наверх</a>)</p>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-### Возможности
+### Features
 
-- Многопоточный поиск
-- Настраиваемый таймаут (по умолчанию: 5 минут)
-- Визуализация прогресса
-- Отслеживание совпадений через уровни статей
-- Обработка ошибок с повторами
+- Multi-threaded search
+- Customizable timeout (default: 5 minutes)
+- Progress visualization
+- Match tracking through article levels
+- Error handling with retries
 
-<!-- НАЧАЛО РАБОТЫ -->
-## Начало работы
+<!-- GETTING STARTED -->
+## Getting Started
 
-### Требования
+### Prerequisites
 
 - Go 1.21+
-- Интернет-соединение
+- Internet connection
 
-### Установка
+### Installation
 
-1. Клонировать репозиторий
+1. Clone the repository
 ```sh
    git clone https://github.com/kartmos/WikiLinkExplorer.git
 ```
-<p align="right">(<a href="#readme-top">наверх</a>)</p><!-- ИСПОЛЬЗОВАНИЕ -->
+<p align="right">(<a href="#readme-top">back to top</a>)</p><!-- USAGE -->
 
-### Использование
+### Usage
 
-1. Переходим в директорию проекта
+1. Navigate to the project directory
 ```sh
 cd WikiLinkExplorer
 ```
 
-2. Собираем бинарный файл
+2. Build the binary
 ```sh
 go build -o wiki-explorer cmd/wikilinkexplorer/main.go
 ```
-3. Вводим параметры запуска
+3. Enter the launch parameters
 ```sh
 ./wiki-explorer \
   -start="https://en.wikipedia.org/wiki/World" \
@@ -80,7 +79,7 @@ go build -o wiki-explorer cmd/wikilinkexplorer/main.go
   -timeout=10m
 ```
 
-Пример вывода:
+Example output:
 ```sh
 Matched on level 3:
 
@@ -91,7 +90,7 @@ Matched on level 3:
 
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
-<!-- БЕЙДЖИ ПРОЕКТА -->
+<!-- PROJECT BADGES -->
 [![Контрибьюторы][contributors-shield]][contributors-url]
 [![Форки][forks-shield]][forks-url]
 [![Звёзды][stars-shield]][stars-url]
