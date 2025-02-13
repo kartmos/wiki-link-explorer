@@ -1,3 +1,3 @@
-module module github.com/kartmos/wiki-link-explorer
+module github.com/kartmos/wiki-link-explorer
 
 go 1.23.1
