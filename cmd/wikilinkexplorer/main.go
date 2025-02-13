@@ -1,8 +1,8 @@
 package main
 
 import (
-	"WikiLinkExplorer/internal/config"
-	"WikiLinkExplorer/internal/parser"
+	"wiki-link-explorer/internal/config"
+	"wiki-link-explorer/internal/parser"
 	"context"
 	"flag"
 	"fmt"
