@@ -7,8 +7,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/kartmos/wiki-link-explorer/internal/config"
-	"github.com/kartmos/wiki-link-explorer/internal/parser"
+	"github.com/kartmos/wiki-link-explorer.git/internal/config"
+	"github.com/kartmos/wiki-link-explorer.git/internal/parser"
 )
 
 func main() {
