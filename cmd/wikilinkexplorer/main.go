@@ -15,7 +15,7 @@ func main() {
 	flag.Parse()
 
 	if config.Threads <= 0 {
-		log.Println("Number of threads must be greater than 0")
+		log.Fatalf("Number of threads must be greater than %d", config.Threads)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
