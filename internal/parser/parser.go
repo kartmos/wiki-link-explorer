@@ -11,6 +11,11 @@ import (
 	"sync"
 )
 
+const (
+	hrefRegexPattern = `href="/wiki/([^"]+)"`
+	wikiURL          = "https://en.wikipedia.org/wiki/"
+)
+
 type Param struct {
 	InputURL    string
 	NumberMap   int
@@ -40,7 +45,6 @@ func (v *Parser) Work(ctx context.Context, cancel context.CancelFunc, data map[i
 	stringParseChan := make(chan string, v.Param.CountTreads)
 	wg := &sync.WaitGroup{}
 
-	fmt.Printf("\n\nLevel %d\n\n", v.Param.NumberMap)
 	//запускаем заданное количество воркеров
 	wg.Add(v.Param.CountTreads)
 	for i := 0; i < v.Param.CountTreads; i++ {
@@ -132,9 +136,9 @@ func (v *Parser) parserUrl(cancel context.CancelFunc, s string, bridge chan stri
 
 func (v *Parser) finder(cancel context.CancelFunc, s string, bridge chan string) {
 	//проверяем есть ли в строке хоть 1 совпадение с интересующим нас хендлером
-	if strings.Index(s, "/wiki/") >= 6 {
+	if strings.Index(s, wikiURL) >= 6 {
 		//выделяем группу захвата в ссылках последние слово в ссылке для его дальнейшего сравнения
-		re := regexp.MustCompile(`href="/wiki/([^"]+)"`)
+		re := regexp.MustCompile(hrefRegexPattern)
 		match := re.FindAllStringSubmatch(s, -1)
 		//по массиву с отобранными словами из интересующих нас ссылок из тела ответа ищем совпадения
 		//совпадений нет кидаем в канал, который читает accumulator и создает мапу для нового запуска функции work
@@ -142,12 +146,12 @@ func (v *Parser) finder(cancel context.CancelFunc, s string, bridge chan string)
 		for _, element := range match {
 			if element[1] == v.Param.MatchWord && !v.Param.BoolMatch {
 				v.Param.BoolMatch = true
-				result := "https://en.wikipedia.org/wiki/" + element[1]
+				result := wikiURL + element[1]
 				fmt.Printf("\nMatched on level %d:\n---> %s\n", v.Param.NumberMap+1, result)
 				cancel()
 				return
 			} else {
-				bridge <- "https://en.wikipedia.org/wiki/" + element[1]
+				bridge <- wikiURL + element[1]
 			}
 		}
 	}
