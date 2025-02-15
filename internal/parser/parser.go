@@ -17,7 +17,7 @@ const (
 )
 
 type Param struct {
-	InputWord   string           `arg:"positional" default:"World" help:"Start Word, where program start parse links"`
+	StartWord   string           `arg:"positional" default:"World" help:"Start Word, where program start parse links"`
 	MatchWord   string           `arg:"positional" help:"Word, which you want to find in wiki"`
 	NumberMap   int              `arg:"-"`
 	BoolMatch   bool             `arg:"-"`
@@ -36,49 +36,54 @@ func NewParser(param Param) *Parser {
 	}
 }
 func (v *Parser) Work(ctx context.Context, cancel context.CancelFunc, data map[int]string) {
-
+	//make storage (buffer) for link's last word, that will send in func Work newly
+	//make chan (bridge) where workers send parse link and accumulator get them and save in buffer
+	//make stringParseChan where func push links in workerpool
 	buffer := make(map[int]string)
 	bridge := make(chan string, v.Param.CountTreads)
 	stringParseChan := make(chan string, v.Param.CountTreads)
 	wg := &sync.WaitGroup{}
-
+	//Implemented workerpool for parsing new links and research match word in links
 	wg.Add(v.Param.CountTreads)
 	for i := 0; i < v.Param.CountTreads; i++ {
 		go v.run(ctx, cancel, wg, stringParseChan, bridge)
 	}
-
+	//wait all workers and close chan (bridge)
 	go func() {
 		wg.Wait()
 		close(bridge)
 	}()
-
+	//Implemented in other goroutine for collect new links in buffer
 	go v.accumulator(buffer, bridge)
-
+	// func push links in workerpool
 	go func() {
 		defer close(stringParseChan)
 		for _, val := range data {
 			stringParseChan <- val
 		}
 	}()
-
+	//before implement new cycle for func Work, wait two signal
+	//if program found match, get single and break cycle
+	//if program didn't find match word, get buffer with new links and implement new cycle func Work
 	select {
 	case <-ctx.Done():
 		return
 
 	case r := <-v.Param.Storage:
-		newData := v.accretion(r)
+		newData := v.assertion(r)
 		v.Work(ctx, cancel, newData)
 	}
 }
 
-func (v *Parser) accretion(input interface{}) map[int]string {
+func (v *Parser) assertion(input interface{}) map[int]string {
+	//assert interface{} in map[int]string
 	val := input.(map[int]string)
 	return val
 }
 
 func (v *Parser) accumulator(m map[int]string, bridge chan string) {
 	idx := 0
-
+	//collect new links in buffer
 	for word := range bridge {
 		if !v.Param.BoolMatch && word != "" {
 			m[idx] = word
@@ -92,7 +97,6 @@ func (v *Parser) accumulator(m map[int]string, bridge chan string) {
 func (v *Parser) run(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, input chan string, bridge chan string) {
 	defer wg.Done()
 	for str := range input {
-
 		select {
 		case <-ctx.Done():
 			return
@@ -125,7 +129,8 @@ func (v *Parser) finder(cancel context.CancelFunc, s string, bridge chan string)
 
 	re := regexp.MustCompile(hrefRegexPattern)
 	match := re.FindAllStringSubmatch(s, -1)
-
+	//if find match word, cancel all workers and func
+	//if didn't match, send word in accumulator
 	for _, element := range match {
 		if element[1] == v.Param.MatchWord && !v.Param.BoolMatch {
 			v.Param.BoolMatch = true
@@ -139,9 +144,10 @@ func (v *Parser) finder(cancel context.CancelFunc, s string, bridge chan string)
 	}
 }
 
+// determinate data for fist call func Work with StartWord
 func (v *Parser) SetupInitialData() map[int]string {
 	InitMap := make(map[int]string)
-	InitMap[0] = v.Param.InputWord
-	fmt.Printf("Init URL ---> %s\n\n", InitMap[0])
+	InitMap[0] = v.Param.StartWord
+	fmt.Printf("Init URL ---> %s\n\n", wikiURL+InitMap[0])
 	return InitMap
 }
