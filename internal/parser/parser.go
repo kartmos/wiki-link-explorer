@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -17,13 +18,13 @@ const (
 )
 
 type Param struct {
-	InputURL    string
-	NumberMap   int
-	MatchURL    string
-	MatchWord   string
-	BoolMatch   bool
-	CountTreads int
-	Storage     chan interface{}
+	InputWord   string           `arg:"positional" default:"World" help:"Start Word, where program start parse links"`
+	MatchWord   string           `arg:"positional" help:"Word, which you want to find in wiki"`
+	NumberMap   int              `arg:"-"`
+	BoolMatch   bool             `arg:"-"`
+	CountTreads int              `arg:"--count" default:"4" help:"Count threads will create in worker pool"`
+	Timeout     time.Duration    `arg:"--timeout" default:"5m" help:"Timeout duration (e.g., 5m, 10s)"`
+	Storage     chan interface{} `arg:"-"`
 }
 
 type Parser struct {
@@ -151,10 +152,8 @@ func (v *Parser) finder(cancel context.CancelFunc, s string, bridge chan string)
 
 // вычленяем слово для поиска создаем мапу для запуска рекусрионной функции work
 func (v *Parser) SetupInitialData() map[int]string {
-	field := strings.Split(v.Param.MatchURL, "/")
-	v.Param.MatchWord = field[len(field)-1]
 	InitMap := make(map[int]string)
-	InitMap[0] = v.Param.InputURL
-	fmt.Printf("Init URL ---> %s\n\n", v.Param.InputURL)
+	InitMap[0] = wikiURL + v.Param.InputWord
+	fmt.Printf("Init URL ---> %s\n\n", InitMap[0])
 	return InitMap
 }

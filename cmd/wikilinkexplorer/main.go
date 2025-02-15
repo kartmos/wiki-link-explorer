@@ -2,35 +2,32 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log"
 	"time"
 
-	"github.com/kartmos/wiki-link-explorer.git/internal/config"
+	"github.com/alexflint/go-arg"
 	"github.com/kartmos/wiki-link-explorer.git/internal/parser"
 )
 
 func main() {
-	flag.Parse()
+	var params parser.Param
+	arg.MustParse(&params)
 
-	if config.Threads <= 0 {
-		log.Fatalf("Number of threads must be greater than %d", config.Threads)
+	params.NumberMap = 1
+	params.BoolMatch = false
+
+	if params.CountTreads <= 0 {
+		log.Fatalf("Number of threads must be greater than %d", params.CountTreads)
 	}
+	p := parser.NewParser(params)
+
+	p.Param.Storage = make(chan interface{})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	timeout := config.Timeout
-	timer := time.AfterFunc(timeout, func() {
-		fmt.Printf("\nTimeout reached after %v, stopping...\n", timeout)
+	timer := time.AfterFunc(p.Param.Timeout, func() {
+		fmt.Printf("\nTimeout reached after %v, stopping...\n", p.Param.Timeout)
 		cancel()
-	})
-	p := parser.NewParser(parser.Param{
-		NumberMap:   1,
-		InputURL:    config.StartURL,
-		MatchURL:    config.TargetURL,
-		CountTreads: config.Threads,
-		Storage:     make(chan interface{}),
-		BoolMatch:   false,
 	})
 	defer close(p.Param.Storage)
 	start := p.SetupInitialData()
