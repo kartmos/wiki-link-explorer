@@ -72,15 +72,7 @@ func (v *Parser) Work(ctx context.Context, cancel context.CancelFunc, data map[i
 		//заупскаем функцию accertion для реализации type accertion interface{} -> map[int]string
 	case r := <-v.Param.Storage:
 		newData := v.accretion(r)
-		//проверяем что нет совпадения и вывода результата и вызываем рекурсией функцию work
-		if !v.Param.BoolMatch {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				v.Work(ctx, cancel, newData)
-			}
-		}
+		v.Work(ctx, cancel, newData)
 	}
 }
 
