@@ -2,6 +2,7 @@ package parser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -16,138 +17,209 @@ const (
 	wikiURL          = "https://en.wikipedia.org/wiki/"
 )
 
+var re *regexp.Regexp = regexp.MustCompile(hrefRegexPattern)
+var client http.Client = *http.DefaultClient
+
 type Param struct {
-	StartWord   string           `arg:"positional" default:"World" help:"Start Word, where program start parse links"`
-	MatchWord   string           `arg:"positional" help:"Word, which you want to find in wiki"`
-	NumberMap   int              `arg:"-"`
-	BoolMatch   bool             `arg:"-"`
-	CountTreads int              `arg:"--count" default:"4" help:"Count threads will create in worker pool"`
-	Timeout     time.Duration    `arg:"--timeout" default:"5m" help:"Timeout duration (e.g., 5m, 10s)"`
-	Storage     chan interface{} `arg:"-"`
+	StartWord   string        `arg:"positional" default:"World" help:"Start Word, where program start parse links"`
+	MatchWord   string        `arg:"positional" help:"Word, which you want to find in wiki"`
+	CountTreads int           `arg:"--count" default:"4" help:"Count threads will create in worker pool"`
+	Timeout     time.Duration `arg:"--timeout" default:"5m" help:"Timeout duration (e.g., 5m, 10s)"`
 }
 
 type Parser struct {
-	Param Param
+	Param        Param
+	BoolMatch    bool
+	BackTracking map[string]string
+}
+
+type Result struct {
+	ParentName string
+	PageName   string
 }
 
 func NewParser(param Param) *Parser {
 	return &Parser{
-		Param: param,
+		Param:        param,
+		BoolMatch:    false,
+		BackTracking: map[string]string{},
 	}
 }
-func (v *Parser) Work(ctx context.Context, cancel context.CancelFunc, data map[int]string) {
-	//make storage (buffer) for link's last word, that will send in func Work newly
-	//make chan (bridge) where workers send parse link and accumulator get them and save in buffer
-	//make stringParseChan where func push links in workerpool
-	buffer := make(map[int]string)
-	bridge := make(chan string, v.Param.CountTreads)
-	stringParseChan := make(chan string, v.Param.CountTreads)
-	wg := &sync.WaitGroup{}
+
+func (v *Parser) Work(parent context.Context) error {
+	//make chan (outputChan) where workers send parse link and accumulator get them and save in buffer
+	//make inputChan where func push links in workerpool
+	outputChan := make(chan []Result, v.Param.CountTreads)
+	inputChan := make(chan string, v.Param.CountTreads)
+	schedulerChan := make(chan []string)
+	defer close(schedulerChan)
+
+	// initialize
+	inputChan <- v.Param.StartWord
+
 	//Implemented workerpool for parsing new links and research match word in links
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+
+	wg := &sync.WaitGroup{}
+	log.Printf("Starting %d working goroutines", v.Param.CountTreads)
 	wg.Add(v.Param.CountTreads)
 	for i := 0; i < v.Param.CountTreads; i++ {
-		go v.run(ctx, cancel, wg, stringParseChan, bridge)
+		go v.run(ctx, wg, inputChan, outputChan)
 	}
-	//wait all workers and close chan (bridge)
+
+	//wait all workers and close chan (outputChan)
 	go func() {
 		wg.Wait()
-		close(bridge)
+		close(outputChan)
 	}()
-	//Implemented in other goroutine for collect new links in buffer
-	go v.accumulator(buffer, bridge)
-	// func push links in workerpool
-	go func() {
-		defer close(stringParseChan)
-		for _, val := range data {
-			stringParseChan <- val
-		}
-	}()
-	//before implement new cycle for func Work, wait two signal
-	//if program found match, get single and break cycle
-	//if program didn't find match word, get buffer with new links and implement new cycle func Work
-	select {
-	case <-ctx.Done():
-		return
 
-	case r := <-v.Param.Storage:
-		newData := v.assertion(r)
-		v.Work(ctx, cancel, newData)
-	}
-}
+	go v.scheduler(ctx, schedulerChan, inputChan)
 
-func (v *Parser) assertion(input interface{}) map[int]string {
-	//assert interface{} in map[int]string
-	val := input.(map[int]string)
-	return val
-}
-
-func (v *Parser) accumulator(m map[int]string, bridge chan string) {
-	idx := 0
+	links := []string{}
+	seen := map[string]bool{}
 	//collect new links in buffer
-	for word := range bridge {
-		if !v.Param.BoolMatch && word != "" {
-			m[idx] = word
-			idx++
+
+	var result Result
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case schedulerChan <- links:
+			links = []string{}
+		case results := <-outputChan:
+			for _, res := range results {
+				word := res.PageName
+				if word == "" {
+					continue
+				}
+				if seen[word] {
+					continue
+				}
+				seen[word] = true
+				if _, ok := v.BackTracking[word]; !ok {
+					v.BackTracking[word] = res.ParentName
+				}
+				links = append(links, word)
+
+				if word == v.Param.MatchWord {
+					result = res
+					goto path_restore
+				}
+			}
 		}
 	}
-	v.Param.Storage <- m
-	v.Param.NumberMap++
+
+path_restore:
+	fmt.Printf("\nMatched on level ??:\n---> %s\n", wikiURL+result.PageName)
+
+	cur := result.ParentName
+	path := []string{result.PageName, result.ParentName}
+
+	for {
+		parent, ok := v.BackTracking[cur]
+		if !ok || parent == "" || cur == parent {
+			break
+		} else {
+			cur = parent
+			path = append(path, parent)
+		}
+	}
+
+	fmt.Printf("Path: %+v\n", path)
+	return nil
 }
 
-func (v *Parser) run(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, input chan string, bridge chan string) {
-	defer wg.Done()
-	for str := range input {
+func (v *Parser) scheduler(ctx context.Context, schedulerChan <-chan []string, inputChan chan<- string) {
+	defer close(inputChan)
+	for {
+		//before implement new cycle for func Work, wait two signal
+		//if program found match, get single and break cycle
+		//if program didn't find match word, get buffer with new links and implement new cycle func Work
+		var links []string
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			v.parserUrl(cancel, str, bridge)
+		case links = <-schedulerChan:
+		}
+
+		for _, val := range links {
+			select {
+			case <-ctx.Done():
+				return
+			case inputChan <- val:
+			}
 		}
 	}
 }
 
-func (v *Parser) parserUrl(cancel context.CancelFunc, s string, bridge chan string) {
-	var client http.Client
+func (v *Parser) run(ctx context.Context, wg *sync.WaitGroup, input <-chan string, output chan<- []Result) {
+	defer wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case pageName := <-input:
+			v.parserUrl(ctx, pageName, output)
+		}
+	}
+}
 
-	response, err := client.Get(wikiURL + s)
+func (v *Parser) parserUrl(ctx context.Context, pageName string, bridge chan<- []Result) {
+	log.Printf("Parse URL --->%s", wikiURL+pageName)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", wikiURL+pageName, nil)
 	if err != nil {
-		log.Fatal("Request error", err)
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		log.Println("[WARN] NewRequestWithContext", err)
+		return
 	}
 
+	response, err := client.Do(req)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		log.Println("[WARN] Request error", err)
+		return
+	}
 	defer response.Body.Close()
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Fatal("Response processing error", err)
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		log.Println("[WARN] Response processing error", err)
+		return
 	}
 
 	res := string(body)
-	v.finder(cancel, res, bridge)
-}
-
-func (v *Parser) finder(cancel context.CancelFunc, s string, bridge chan string) {
-
-	re := regexp.MustCompile(hrefRegexPattern)
-	match := re.FindAllStringSubmatch(s, -1)
 	//if find match word, cancel all workers and func
 	//if didn't match, send word in accumulator
-	for _, element := range match {
-		if element[1] == v.Param.MatchWord && !v.Param.BoolMatch {
-			v.Param.BoolMatch = true
-			result := wikiURL + element[1]
-			fmt.Printf("\nMatched on level %d:\n---> %s\n", v.Param.NumberMap+1, result)
-			cancel()
-			return
-		} else {
-			bridge <- element[1]
+	result := []Result{}
+	for _, element := range re.FindAllStringSubmatch(res, -1) {
+		capture := element[1]
+		if capture == "" {
+			continue
 		}
+		result = append(result, Result{PageName: capture, ParentName: pageName})
+	}
+
+	select {
+	case <-ctx.Done():
+	case bridge <- result:
 	}
 }
 
-// determinate data for fist call func Work with StartWord
-func (v *Parser) SetupInitialData() map[int]string {
-	InitMap := make(map[int]string)
-	InitMap[0] = v.Param.StartWord
-	fmt.Printf("Init URL ---> %s\n\n", wikiURL+InitMap[0])
-	return InitMap
+func (v *Parser) Start() error {
+	ctx, cancel := context.WithDeadlineCause(context.Background(), time.Now().Add(v.Param.Timeout),
+		fmt.Errorf("Timeout reached after %v, stopping", v.Param.Timeout),
+	)
+	defer cancel()
+
+	fmt.Printf("Init URL ---> %s\n\n", wikiURL+v.Param.StartWord)
+	return v.Work(ctx)
 }
